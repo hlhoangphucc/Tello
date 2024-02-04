@@ -1,0 +1,57 @@
+<!-- Client: index.html -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Socket.io Chat</title>
+</head>
+
+<body>
+  <ul id="messages"></ul>
+  <form id="form" action="">
+    <input id="m" autocomplete="off" /><button>Send</button>
+  </form>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+  <script>
+    // Connect to the Socket.IO server
+    const socket = io()
+
+    // Handle form submission
+    document.getElementById('form').addEventListener('submit', (e) => {
+      e.preventDefault()
+      const username = "test1"  // Add username logic as needed
+      const email = "abc@gmail.com"  // Add email logic as needed
+      const message = document.getElementById('m').value
+
+      // Create a message object
+      const a = {
+        username,
+        email,
+        message,
+      }
+
+      // Send the structured message object to the server
+      socket.emit('chat message', a)
+
+      document.getElementById('m').value = ''
+    })
+
+    // Listen for incoming chat messages
+    socket.on('chat message', (msg) => {
+      const messages = document.getElementById('messages')
+      const li = document.createElement('li')
+
+      // Parse the received JSON string to convert it into a JavaScript object
+      const messageObject = JSON.parse(msg)
+
+      // Access the properties of the message object
+      li.textContent = `Username: ${messageObject.username}, Email: ${messageObject.email}, Message: ${messageObject.message}`
+
+      messages.appendChild(li)
+    });
+  </script>
+</body>
+
+</html>
