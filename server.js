@@ -1,24 +1,29 @@
 const express = require('express');
-const { Client } = require('pg');
+// const { Client } = require('pg');
 const http = require('http');
 const socketIO = require('socket.io');
-const { log } = require('console');
 
+
+
+const client = require('./db');
 const app = express();
 const server = http.createServer(app);
 const io = socketIO(server);
 
-const client = new Client({
-  user: 'postgres',
-  host: 'localhost',
-  database: 'server',
-  password: '123456',
-  port: 5432,
-});
-client
-  .connect()
-  .then(() => console.log('Connected to PostgreSQL'))
-  .catch((error) => console.error('Error connecting to PostgreSQL:', error));
+// const client = new Client({
+//   user: 'default',
+//   host: 'ep-rapid-grass-a43t8ysj-pooler.us-east-1.postgres.vercel-storage.com',
+//   database: 'verceldb',
+//   password: 'QUcxI1ZDrs7O',
+//   port: 5432,
+//   ssl: {
+//     rejectUnauthorized: false,
+//   },
+// });
+// client
+//   .connect()
+//   .then(() => console.log('Connected to PostgreSQL'))
+//   .catch((error) => console.error('Error connecting to PostgreSQL:', error));
 
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/client/client.html');
