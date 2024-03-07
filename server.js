@@ -1,29 +1,24 @@
 const express = require('express');
-// const { Client } = require('pg');
+const { Client } = require('pg');
 const http = require('http');
 const socketIO = require('socket.io');
+const { log } = require('console');
 
-
-
-const client = require('./db');
 const app = express();
 const server = http.createServer(app);
 const io = socketIO(server);
 
-// const client = new Client({
-//   user: 'default',
-//   host: 'ep-rapid-grass-a43t8ysj-pooler.us-east-1.postgres.vercel-storage.com',
-//   database: 'verceldb',
-//   password: 'QUcxI1ZDrs7O',
-//   port: 5432,
-//   ssl: {
-//     rejectUnauthorized: false,
-//   },
-// });
-// client
-//   .connect()
-//   .then(() => console.log('Connected to PostgreSQL'))
-//   .catch((error) => console.error('Error connecting to PostgreSQL:', error));
+const client = new Client({
+  user: 'postgres',
+  host: 'localhost',
+  database: 'server',
+  password: '123',
+  port: 5432,
+});
+client
+  .connect()
+  .then(() => console.log('Connected to PostgreSQL'))
+  .catch((error) => console.error('Error connecting to PostgreSQL:', error));
 
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/client/client.html');
@@ -31,6 +26,12 @@ app.get('/', (req, res) => {
 
 io.on('connection', (socket) => {
   console.log('A user connected', socket.id);
+
+  socket.on('connection', (data) => {
+    const { user_id } = data;
+    onlineUser(user_id);
+    console.log('User: ', user_id, 'connected');
+  });
 
   socket.on('chat list', async (data) => {
     try {
@@ -49,32 +50,37 @@ io.on('connection', (socket) => {
     try {
       const messages = await getMessagesByRoomId(data.room_id, 10);
       io.emit('allMessages', messages);
-      io.emit('');
     } catch (error) {
       console.error('Error handling getMessages:', error);
     }
   });
 
-  socket.on('newPost', async (data) => {
-    if (data !== undefined) {
-      savePostToDatabase(data);
-    }
+  socket.on('retrieveMessage', async (data) => {
     try {
-      const posts = await getNewPost(10);
-      io.emit('allPosts', posts);
+      const messages = await retrieveMessage(data);
+      io.emit('allMessages', messages);
     } catch (error) {
-      console.error('Error save post to database', error);
+      console.error('Error handling getMessages:', error);
+    }
+  });
+
+  socket.on('editMessage', async (id, message) => {
+    try {
+      const messages = await editMessage(id, message);
+      io.emit('allMessages', messages);
+    } catch (error) {
+      console.error('Error edit message: ', error);
     }
   });
 
   socket.on('getChatList', async (myid, eventId) => {
     try {
       const getChatListQuery = `
-      SELECT chatlist.*, info_user.avt_url
+      SELECT chatlist.*, info_user.*
       FROM chatlist
-      INNER JOIN info_user ON CAST(chatlist.my_id AS VARCHAR) = info_user.user_id OR CAST(chatlist.other_id AS VARCHAR) = info_user.user_id
-   	  WHERE $1 IN (my_id)
-	    AND CAST(info_user.user_id AS INTEGER) <> $1
+      INNER JOIN info_user ON CAST(chatlist.my_user_id AS INTEGER) = info_user.user_id OR CAST(chatlist.other_user_id AS INTEGER) = info_user.user_id
+   	  WHERE $1 IN (my_user_id)
+	    AND CAST (info_user.user_id AS INTEGER)  <> $1
       ORDER BY updated_at DESC`;
       const result = await client.query(getChatListQuery, [myid]);
 
@@ -84,9 +90,41 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('getPosts', async (limit) => {
-    const posts = await getNewPost(limit);
-    io.emit('allPosts', posts);
+  socket.on('getChatListFromId', async (myid, otherid, eventId) => {
+    try {
+      const getChatListQuery = `
+      SELECT chatlist.*, info_user.avt_url
+      FROM chatlist
+      INNER JOIN info_user ON CAST(chatlist.my_user_id AS INTEGER) = info_user.user_id OR CAST(chatlist.other_user_id AS INTEGER) = info_user.user_id
+   	  WHERE( my_user_id= $1 and other_user_id=$2) 
+	    AND CAST(info_user.user_id AS INTEGER) <> $1
+      ORDER BY updated_at DESC`;
+      const result = await client.query(getChatListQuery, [myid, otherid]);
+      io.emit('chatlistfromid', { data: result.rows, eventId });
+    } catch (error) {
+      console.error('Error fetching chat list:', error.message);
+    }
+  });
+
+  socket.on('deleteChatList', async (room_id) => {
+    try {
+      let query = `
+      DELETE FROM chatlist
+      WHERE room_id=$1`;
+      const result = await client.query(query, [room_id]);
+      return result.rows;
+    } catch (error) {
+      console.error('Error delete chat list');
+    }
+  });
+
+  socket.on('deletePost', async (post_id) => {
+    try {
+      const posts = await deletePost(post_id);
+      io.emit('PostForUser', posts);
+    } catch (error) {
+      console.error('Error handling getMessages:', error);
+    }
   });
 
   socket.on('getMessages', async (room_id, limit) => {
@@ -99,18 +137,19 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('getPostFromUserId', async (room_id, limit) => {
-    const postuserId = await getPostFromUserId(room_id, limit);
-    io.emit('PostForUser', postuserId);
+  socket.on('getInfoUser', async (user_id) => {
+    let avatar = await getInfoUser(user_id);
+    io.emit('InfoUser', avatar);
   });
 
-  socket.on('getAvt', async (user_id) => {
-    let avatar = await getAvt(user_id);
-    io.emit('AvtUser', avatar);
-  });
   // Handle disconnection
   socket.on('disconnect', () => {
     console.log('User disconnected');
+  });
+
+  socket.on('user_disconnect', (data) => {
+    const { user_id } = data;
+    offUser(user_id);
   });
 });
 
@@ -133,14 +172,14 @@ async function saveChatList(data) {
     } = data;
 
     const checkChatRoomQuery =
-      'SELECT * FROM chatlist WHERE (my_id = $1 AND other_id = $2) OR (my_id = $2 AND other_id = $1)';
+      'SELECT * FROM chatlist WHERE (my_user_id = $1 AND other_user_id = $2) OR (my_user_id = $2 AND other_user_id = $1)';
     const resultOther = await client.query(checkChatRoomQuery, [myId, idOther]);
 
     if (resultOther.rows.length === 0) {
       // Nếu phòng chat chưa tồn tại, thêm mới vào PostgreSQL
       const insertChatRoomQuery = `
-            INSERT INTO chatlist (room_id,last_msg,my_name,my_email,my_id,name_other,email_other,other_id)
-            VALUES ($1, $2, $3, $4, $5, $6,$7,$8);
+            INSERT INTO chatlist (room_id,last_msg,my_name,my_email,my_user_id,name_other,email_other,other_user_id,updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6,$7,$8, NOW());
           `;
       await client.query(insertChatRoomQuery, [
         roomId,
@@ -182,27 +221,6 @@ async function saveMessageToDatabase(data) {
   }
 }
 
-async function savePostToDatabase(data) {
-  try {
-    const {
-      post_id,
-      text_post,
-      media_post,
-      user_name,
-      user_id,
-      post_time,
-      post_type,
-    } = data;
-
-    await client.query(
-      'INSERT INTO posts (post_id, text_post, media_post, user_name,user_id, post_time, post_type) VALUES ($1, $2, $3, $4, $5, $6,$7)',
-      [post_id, text_post, media_post, user_name, user_id, post_time, post_type]
-    );
-  } catch (error) {
-    console.error('Error saving post to PostgreSQL:', error);
-  }
-}
-
 async function getMessagesByRoomId(room_id, limit) {
   try {
     const getLatestMessagesQuery = `
@@ -221,42 +239,7 @@ async function getMessagesByRoomId(room_id, limit) {
   }
 }
 
-async function getNewPost(limit) {
-  try {
-    const getLatestPostsQuery = `
-      SELECT * 
-      FROM posts 
-      ORDER BY id DESC
-      LIMIT $1
-    `;
-
-    const result = await client.query(getLatestPostsQuery, [limit]);
-
-    return result.rows;
-  } catch (error) {
-    console.error('Error getting latest posts from PostgreSQL:', error);
-    return [];
-  }
-}
-
-async function getPostFromUserId(user_id, limit) {
-  try {
-    let queryString = `
-    SELECT * 
-    FROM posts
-    WHERE user_id=$1 
-    ORDER BY id DESC
-    LIMIT $2`;
-
-    const result = await client.query(queryString, [user_id, limit]);
-    return result.rows;
-  } catch (error) {
-    console.error('Error get Post From User Id', error);
-    return [];
-  }
-}
-
-async function getAvt(user_id) {
+async function getInfoUser(user_id) {
   try {
     let query = `
     SELECT *
@@ -281,5 +264,57 @@ async function updateLastMsg(room_id, last_msg, updated_at) {
     return result.rows;
   } catch (error) {
     console.error('Error update  last message in room : ', error);
+  }
+}
+
+async function retrieveMessage(id) {
+  try {
+    let query = `
+    UPDATE messages
+    SET message_type='retrieve'
+    WHERE id=$1`;
+    const result = await client.query(query, [id]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error update message : ', error);
+  }
+}
+
+async function editMessage(id, message) {
+  try {
+    let query = `
+    UPDATE messages
+    SET message_type='edittext',message=$1
+    WHERE id=$2`;
+    const result = await client.query(query, [message, id]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error update message : ', error);
+  }
+}
+
+async function onlineUser(id) {
+  try {
+    let query = `
+    UPDATE info_user
+    SET status='true'
+    WHERE user_id=$1`;
+    const result = await client.query(query, [id]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error update status infouser : ', error);
+  }
+}
+
+async function offUser(id) {
+  try {
+    let query = `
+    UPDATE info_user
+    SET status='false',online_time=NOW()
+    WHERE user_id=$1`;
+    const result = await client.query(query, [id]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error update status infouser : ', error);
   }
 }
