@@ -9,11 +9,14 @@ const server = http.createServer(app);
 const io = socketIO(server);
 
 const client = new Client({
-  user: 'postgres',
-  host: 'localhost',
-  database: 'server',
-  password: '123',
+  user: 'default',
+  host: 'ep-plain-pine-a1ag6s7p-pooler.ap-southeast-1.aws.neon.tech',
+  database: 'verceldb',
+  password: '0KNlfjJWg4Bb',
   port: 5432,
+  ssl: {
+    rejectUnauthorized: false,
+  },
 });
 client
   .connect()
