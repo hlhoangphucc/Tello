@@ -28,8 +28,6 @@ app.get('/', (req, res) => {
 });
 
 io.on('connection', (socket) => {
-  console.log('A user connected', socket.id);
-
   socket.on('connection', (data) => {
     const { user_id } = data;
     onlineUser(user_id);
@@ -140,11 +138,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('getInfoUser', async (user_id) => {
-    let avatar = await getInfoUser(user_id);
-    io.emit('InfoUser', avatar);
-  });
-
   // Handle disconnection
   socket.on('disconnect', () => {
     console.log('User disconnected');
@@ -238,21 +231,6 @@ async function getMessagesByRoomId(room_id, limit) {
     return result.rows;
   } catch (error) {
     console.error('Error getting latest messages from PostgreSQL:', error);
-    return [];
-  }
-}
-
-async function getInfoUser(user_id) {
-  try {
-    let query = `
-    SELECT *
-    FROM public.info_user
-    WHERE user_id=$1`;
-
-    const result = await client.query(query, [user_id]);
-    return result.rows;
-  } catch (error) {
-    console.error('Error get  Avatar from User ID: ', error);
     return [];
   }
 }
