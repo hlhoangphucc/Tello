@@ -10,9 +10,9 @@ const io = socketIO(server);
 
 const client = new Client({
   user: 'default',
-  host: 'ep-plain-pine-a1ag6s7p-pooler.ap-southeast-1.aws.neon.tech',
+  host: 'ep-raspy-voice-a48nk904-pooler.us-east-1.aws.neon.tech',
   database: 'verceldb',
-  password: '0KNlfjJWg4Bb',
+  password: 'cERtPhngi65T',
   port: 5432,
   ssl: {
     rejectUnauthorized: false,
